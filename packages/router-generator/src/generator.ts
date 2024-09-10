@@ -12,6 +12,7 @@ import {
   replaceBackslash,
   routePathToVariable,
   trimPathLeft,
+  writeIfDifferent,
 } from './utils'
 import { getRouteNodes as physicalGetRouteNodes } from './filesystem/physical/getRouteNodes'
 import { getRouteNodes as virtualGetRouteNodes } from './filesystem/virtual/getRouteNodes'
@@ -224,10 +225,17 @@ export const Route = createRootRoute({
           )
       }
 
-      if (replaced !== routeCode) {
-        logger.log(`🟡 Updating ${node.fullPath}`)
-        await fsp.writeFile(node.fullPath, replaced)
-      }
+      await writeIfDifferent(
+        node.fullPath,
+        prettierOptions,
+        routeCode,
+        replaced,
+        {
+          beforeWrite: () => {
+            logger.log(`🟡 Updating ${node.fullPath}`)
+          },
+        },
+      )
     }
 
     if (
@@ -359,18 +367,20 @@ export const Route = createAPIFileRoute('${escapedRoutePath}')({
         await prettier.format(replaced, prettierOptions),
       )
     } else {
-      const copied = await prettier.format(
+      await writeIfDifferent(
+        node.fullPath,
+        prettierOptions,
+        routeCode,
         routeCode.replace(
           /(createAPIFileRoute\(\s*['"])([^\s]*)(['"],?\s*\))/g,
           (_, p1, __, p3) => `${p1}${escapedRoutePath}${p3}`,
         ),
-        prettierOptions,
+        {
+          beforeWrite: () => {
+            logger.log(`🟡 Updating ${node.fullPath}`)
+          },
+        },
       )
-
-      if (copied !== routeCode) {
-        logger.log(`🟡 Updating ${node.fullPath}`)
-        await fsp.writeFile(node.fullPath, copied)
-      }
     }
   }
 
@@ -669,18 +679,15 @@ export const Route = createAPIFileRoute('${escapedRoutePath}')({
     )
   }
 
-  const routeConfigFileContent = await prettier.format(
-    config.disableManifestGeneration
-      ? routeImports
-      : [
-          routeImports,
-          '\n',
-          '/* ROUTE_MANIFEST_START',
-          createRouteManifest(),
-          'ROUTE_MANIFEST_END */',
-        ].join('\n'),
-    prettierOptions,
-  )
+  const routeConfigFileContent = config.disableManifestGeneration
+    ? routeImports
+    : [
+        routeImports,
+        '\n',
+        '/* ROUTE_MANIFEST_START',
+        createRouteManifest(),
+        'ROUTE_MANIFEST_END */',
+      ].join('\n')
 
   if (!checkLatest()) return
 
@@ -704,13 +711,19 @@ export const Route = createAPIFileRoute('${escapedRoutePath}')({
   if (!checkLatest()) return
 
   // Write the route tree file, if it has changed
-  if (existingRouteTreeContent !== routeConfigFileContent) {
-    logger.log(`🟡 Updating ${config.generatedRouteTree}`)
-    await fsp.writeFile(
-      path.resolve(config.generatedRouteTree),
-      routeConfigFileContent,
-    )
-    if (!checkLatest()) return
+  const routeTreeWriteResult = await writeIfDifferent(
+    path.resolve(config.generatedRouteTree),
+    prettierOptions,
+    existingRouteTreeContent,
+    routeConfigFileContent,
+    {
+      beforeWrite: () => {
+        logger.log(`🟡 Updating ${config.generatedRouteTree}`)
+      },
+    },
+  )
+  if (routeTreeWriteResult && !checkLatest()) {
+    return
   }
 
   logger.log(
