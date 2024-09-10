@@ -705,6 +705,7 @@ export const Route = createAPIFileRoute('${escapedRoutePath}')({
 
   // Write the route tree file, if it has changed
   if (existingRouteTreeContent !== routeConfigFileContent) {
+    logger.log(`🟡 Updating ${config.generatedRouteTree}`)
     await fsp.writeFile(
       path.resolve(config.generatedRouteTree),
       routeConfigFileContent,
